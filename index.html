@@ -515,7 +515,7 @@
             }
             streamController = new AbortController();
             stopTypewriter();
-            typewriterElement.textContent = '';
+            typewriterElement.textContent = '司南正在排兵布阵...';
             cursorElement.style.opacity = '1';
             cursorElement.classList.remove('animate-pulse');
             try {
@@ -526,6 +526,8 @@
                     signal: streamController.signal
                 });
                     if (!response.ok || !response.body) {
+                        const detail = response ? await response.text() : 'No response';
+                        console.error('Sinan API Error:', detail);
                         typewriterElement.textContent = '司南正在闭关，请稍后再试。';
                     cursorElement.classList.add('animate-pulse');
                     return;
@@ -564,6 +566,7 @@
                 cursorElement.classList.add('animate-pulse');
             } catch (e) {
                 if (e.name === 'AbortError') return;
+                console.error('Sinan API Error:', e);
                 typewriterElement.textContent = '司南正在闭关，请稍后再试。';
                 cursorElement.classList.add('animate-pulse');
             }
