@@ -353,6 +353,8 @@
         let hasPaid = false;
         let pendingContext = '';
         let currentProductType = '';
+        let currentEntryMode = 'A';
+        let lastMode = 'A';
         let streamController = null;
         const aiChatUrl = aiChatFrame ? (aiChatFrame.dataset.chatUrl || '') : '';
 
@@ -380,6 +382,13 @@
 
             
             currentProductType = data.title;
+            if (productId === 'sinan') {
+                currentEntryMode = 'A';
+            } else if (productId === 'toming') {
+                currentEntryMode = 'B';
+            } else {
+                currentEntryMode = 'C';
+            }
             startTypewriter(data.text);
             hasPaid = false;
             pendingContext = '';
@@ -484,7 +493,8 @@
             if (hasPaid) {
                 sendContextToAi(pendingContext);
             }
-            callSinanAI(pendingContext, currentProductType || '司南过堂');
+            const mode = hasPaid ? 'C' : currentEntryMode;
+            callSinanAI(pendingContext, currentProductType || '司南过堂', mode, hasPaid);
         }
 
         function confirmPayment() {
@@ -509,7 +519,7 @@
             aiChatFrame.contentWindow.postMessage({ type: 'sinan_context', text }, '*');
         }
 
-        async function callSinanAI(userText, productType) {
+        async function callSinanAI(userText, productType, mode, paid) {
             if (streamController) {
                 streamController.abort();
             }
@@ -518,11 +528,13 @@
             typewriterElement.textContent = '司南正在排兵布阵...';
             cursorElement.style.opacity = '1';
             cursorElement.classList.remove('animate-pulse');
+            const effectiveMode = mode || currentEntryMode || 'A';
+            lastMode = effectiveMode;
             try {
                 const response = await fetch('/api/sinan', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userText, productType, stream: true }),
+                    body: JSON.stringify({ userText, productType, mode: effectiveMode, paid: !!paid, stream: true }),
                     signal: streamController.signal
                 });
                     if (!response.ok || !response.body) {
@@ -535,6 +547,7 @@
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder('utf-8');
                 let buffer = '';
+                let firstChunkReceived = false;
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
@@ -553,6 +566,10 @@
                             const json = JSON.parse(payload);
                             const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
                             if (delta) {
+                                if (!firstChunkReceived) {
+                                    typewriterElement.textContent = '';
+                                    firstChunkReceived = true;
+                                }
                                 typewriterElement.textContent += delta;
                                 if (typewriterBox) {
                                     typewriterBox.scrollTop = typewriterBox.scrollHeight;
@@ -584,7 +601,8 @@
                 return;
             }
             aiFollowupInput.value = '';
-            callSinanAI(text, currentProductType || '司南过堂');
+            const mode = hasPaid ? 'C' : lastMode || currentEntryMode;
+            callSinanAI(text, currentProductType || '司南过堂', mode, hasPaid);
         }
 
         if (aiFollowupSend) {
@@ -613,3 +631,4 @@
     </script>
 </body>
 </html>
+git push --force https://github.com/zhangrenkui542-png/xingfulian-official.git main
