@@ -267,9 +267,8 @@
                         支付通道
                     </h4>
                     <div class="w-48 h-48 mx-auto bg-white p-2 rounded shadow-lg mb-2 relative group overflow-hidden border-2 border-slate-200">
-                        <!-- Placeholder for QR Code if image is missing -->
                         <div class="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400 text-xs text-center relative z-0">
-                            <img id="payment-qr" src="images/qr.png" alt="支付码" class="w-full h-full object-contain relative z-10" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+                            <img id="payment-qr" src="images/qr-199.png" alt="支付码" class="w-full h-full object-contain relative z-10" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
                             <div class="hidden w-full h-full flex-col items-center justify-center absolute inset-0 bg-white z-0">
                                 <svg class="w-12 h-12 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v1m6 11h2m-6 0h-2v4h2v-4zM5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
                                 <span class="text-slate-900 font-bold text-sm">扫码支付</span>
@@ -278,6 +277,9 @@
                         </div>
                     </div>
                     <p class="text-slate-500 text-xs mt-2">支持微信 / 支付宝</p>
+                    <button id="payment-confirm-btn" class="mt-3 w-full py-2 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500 hover:text-slate-950 hover:border-cyan-400 transition-all text-xs tracking-widest uppercase font-semibold shadow-[0_0_18px_-6px_rgba(6,182,212,0.35)]">
+                        已完成支付
+                    </button>
                 </div>
 
                 <div class="flex-1 flex flex-col gap-4">
@@ -291,6 +293,16 @@
                         <span class="relative z-10">封存密报并提交</span>
                         <div class="absolute inset-0 bg-cyan-400/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
                     </button>
+                </div>
+                
+                <div id="ai-chat-wrap" class="hidden border border-slate-800 rounded-lg bg-slate-950/40 p-3 md:p-4 shadow-[0_0_20px_-12px_rgba(6,182,212,0.4)]">
+                    <div class="flex items-center justify-between text-xs text-slate-500 mb-2">
+                        <span class="font-serif text-cyan-200/80">司南 AI 对话</span>
+                        <span id="ai-chat-status" class="text-[10px] text-slate-600 font-mono">待支付确认</span>
+                    </div>
+                    <div class="w-full h-64 md:h-72 bg-slate-950/60 border border-slate-800 rounded overflow-hidden">
+                        <iframe id="ai-chat-frame" title="司南 AI 对话" class="w-full h-full" data-chat-url="" srcdoc="<!doctype html><html><body style='margin:0;background:#0b1120;color:#e2e8f0;font-family:serif;'><div id='log' style='padding:12px;font-size:14px;line-height:1.6;'>司南 AI 待命。请先确认支付。</div><script>window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='sinan_context'){var log=document.getElementById('log');log.innerText='已接收密报：\\n'+d.text+'\\n\\n请继续提问。';}});</script></body></html>" allow="clipboard-read; clipboard-write;"></iframe>
+                    </div>
                 </div>
             </div>
         </div>
@@ -325,8 +337,17 @@
         const typewriterElement = document.getElementById('typewriter-text');
         const cursorElement = document.querySelector('.cursor');
         const paymentQr = document.getElementById('payment-qr');
+        const paymentConfirmBtn = document.getElementById('payment-confirm-btn');
+        const aiChatWrap = document.getElementById('ai-chat-wrap');
+        const aiChatFrame = document.getElementById('ai-chat-frame');
+        const aiChatStatus = document.getElementById('ai-chat-status');
         
         let typingInterval;
+        let hasPaid = false;
+        let pendingContext = '';
+        let currentProductType = '';
+        let streamController = null;
+        const aiChatUrl = aiChatFrame ? (aiChatFrame.dataset.chatUrl || '') : '';
 
         // Modal Functions
         function openModal(productId) {
@@ -350,8 +371,20 @@
             modalOverlay.classList.remove('opacity-0');
             modalContent.classList.remove('scale-95');
 
-            // Start Typewriter
+            
+            currentProductType = data.title;
             startTypewriter(data.text);
+            hasPaid = false;
+            pendingContext = '';
+            if (aiChatWrap) {
+                aiChatWrap.classList.add('hidden');
+            }
+            if (aiChatStatus) {
+                aiChatStatus.textContent = '待支付确认';
+            }
+            if (aiChatFrame && aiChatUrl) {
+                aiChatFrame.src = aiChatUrl;
+            }
         }
 
         function closeModal() {
@@ -408,9 +441,9 @@
             }, 4000);
         }
 
-        // Submit Logic
         function submitForm() {
-            const report = document.getElementById('secret-report').value;
+            const reportInput = document.getElementById('secret-report');
+            const report = reportInput.value;
             if (!report.trim()) {
                 showToast("请先输入密报内容，哪怕只有寥寥数语。");
                 return;
@@ -438,13 +471,104 @@
                 confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInOut(0.7, 0.9), y: Math.random() - 0.2 } }));
             }, 250);
 
-            // Show Toast instead of Alert
             showToast("密报已封存，请即刻扫码联系统帅。");
-            
-            // Close modal after delay
-            setTimeout(() => {
-                closeModal();
-            }, 2500);
+            reportInput.value = '密报已封存，正在同步给司南 AI...';
+            pendingContext = report.trim();
+            if (hasPaid) {
+                sendContextToAi(pendingContext);
+            }
+            callSinanAI(pendingContext, currentProductType || '司南过堂');
+        }
+
+        function confirmPayment() {
+            hasPaid = true;
+            if (aiChatWrap) {
+                aiChatWrap.classList.remove('hidden');
+            }
+            if (aiChatStatus) {
+                aiChatStatus.textContent = '已支付，可对话';
+            }
+            if (aiChatFrame && aiChatUrl && !aiChatFrame.src) {
+                aiChatFrame.src = aiChatUrl;
+            }
+            if (pendingContext) {
+                sendContextToAi(pendingContext);
+            }
+            showToast("支付已确认，司南 AI 已就位。");
+        }
+
+        function sendContextToAi(text) {
+            if (!aiChatFrame || !aiChatFrame.contentWindow) return;
+            aiChatFrame.contentWindow.postMessage({ type: 'sinan_context', text }, '*');
+        }
+
+        async function callSinanAI(userText, productType) {
+            if (streamController) {
+                streamController.abort();
+            }
+            streamController = new AbortController();
+            stopTypewriter();
+            typewriterElement.textContent = '';
+            cursorElement.style.opacity = '1';
+            cursorElement.classList.remove('animate-pulse');
+            try {
+                const response = await fetch('/api/sinan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userText, productType, stream: true }),
+                    signal: streamController.signal
+                });
+                if (!response.ok || !response.body) {
+                    typewriterElement.textContent = '司南未上线，请稍后再试。';
+                    cursorElement.classList.add('animate-pulse');
+                    return;
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed.startsWith('data:')) continue;
+                        const payload = trimmed.replace(/^data:\s*/, '');
+                        if (payload === '[DONE]') {
+                            cursorElement.classList.add('animate-pulse');
+                            return;
+                        }
+                        try {
+                            const json = JSON.parse(payload);
+                            const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+                            if (delta) {
+                                typewriterElement.textContent += delta;
+                            }
+                        } catch (e) {
+                            continue;
+                        }
+                    }
+                }
+                cursorElement.classList.add('animate-pulse');
+            } catch (e) {
+                if (e.name === 'AbortError') return;
+                typewriterElement.textContent = '司南通信中断，请重试。';
+                cursorElement.classList.add('animate-pulse');
+            }
+        }
+
+        if (paymentConfirmBtn) {
+            paymentConfirmBtn.addEventListener('click', confirmPayment);
+        }
+
+        if (aiChatFrame) {
+            aiChatFrame.addEventListener('load', () => {
+                if (hasPaid && pendingContext) {
+                    sendContextToAi(pendingContext);
+                }
+            });
         }
     </script>
 </body>
