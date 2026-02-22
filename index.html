@@ -241,7 +241,7 @@
                 </div>
                 
                 <div class="flex-1 relative z-10">
-                    <div class="absolute top-0 left-0 w-full h-full border border-slate-800/50 rounded p-6 bg-slate-950/30 overflow-y-auto custom-scrollbar">
+                    <div id="typewriter-box" class="absolute top-0 left-0 w-full h-full border border-slate-800/50 rounded p-6 bg-slate-950/30 overflow-y-auto custom-scrollbar">
                         <!-- Typewriter Output -->
                         <div id="typewriter-text" class="font-song text-lg leading-loose text-cyan-100/90 whitespace-pre-wrap tracking-wide"></div>
                         <span class="cursor inline-block w-2 h-5 bg-cyan-500 ml-1 align-middle opacity-0 shadow-[0_0_5px_#06b6d4]"></span>
@@ -303,6 +303,10 @@
                     <div class="w-full h-64 md:h-72 bg-slate-950/60 border border-slate-800 rounded overflow-hidden">
                         <iframe id="ai-chat-frame" title="司南 AI 对话" class="w-full h-full" data-chat-url="" srcdoc="<!doctype html><html><body style='margin:0;background:#0b1120;color:#e2e8f0;font-family:serif;'><div id='log' style='padding:12px;font-size:14px;line-height:1.6;'>司南 AI 待命。请先确认支付。</div><script>window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='sinan_context'){var log=document.getElementById('log');log.innerText='已接收密报：\\n'+d.text+'\\n\\n请继续提问。';}});</script></body></html>" allow="clipboard-read; clipboard-write;"></iframe>
                     </div>
+                    <div class="mt-3 flex gap-2">
+                        <input id="ai-followup-input" type="text" placeholder="继续追问司南..." class="flex-1 bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-300 rounded focus:border-cyan-500/40 outline-none placeholder:text-slate-700">
+                        <button id="ai-followup-send" class="px-4 py-2 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500 hover:text-slate-950 transition-all text-xs tracking-widest uppercase font-semibold">追问</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -341,6 +345,9 @@
         const aiChatWrap = document.getElementById('ai-chat-wrap');
         const aiChatFrame = document.getElementById('ai-chat-frame');
         const aiChatStatus = document.getElementById('ai-chat-status');
+        const typewriterBox = document.getElementById('typewriter-box');
+        const aiFollowupInput = document.getElementById('ai-followup-input');
+        const aiFollowupSend = document.getElementById('ai-followup-send');
         
         let typingInterval;
         let hasPaid = false;
@@ -518,8 +525,8 @@
                     body: JSON.stringify({ userText, productType, stream: true }),
                     signal: streamController.signal
                 });
-                if (!response.ok || !response.body) {
-                    typewriterElement.textContent = '司南未上线，请稍后再试。';
+                    if (!response.ok || !response.body) {
+                        typewriterElement.textContent = '司南正在闭关，请稍后再试。';
                     cursorElement.classList.add('animate-pulse');
                     return;
                 }
@@ -545,6 +552,9 @@
                             const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
                             if (delta) {
                                 typewriterElement.textContent += delta;
+                                if (typewriterBox) {
+                                    typewriterBox.scrollTop = typewriterBox.scrollHeight;
+                                }
                             }
                         } catch (e) {
                             continue;
@@ -554,9 +564,36 @@
                 cursorElement.classList.add('animate-pulse');
             } catch (e) {
                 if (e.name === 'AbortError') return;
-                typewriterElement.textContent = '司南通信中断，请重试。';
+                typewriterElement.textContent = '司南正在闭关，请稍后再试。';
                 cursorElement.classList.add('animate-pulse');
             }
+        }
+
+        function sendFollowup() {
+            if (!hasPaid) {
+                showToast("请先完成支付确认。");
+                return;
+            }
+            if (!aiFollowupInput) return;
+            const text = aiFollowupInput.value.trim();
+            if (!text) {
+                showToast("请输入追问内容。");
+                return;
+            }
+            aiFollowupInput.value = '';
+            callSinanAI(text, currentProductType || '司南过堂');
+        }
+
+        if (aiFollowupSend) {
+            aiFollowupSend.addEventListener('click', sendFollowup);
+        }
+
+        if (aiFollowupInput) {
+            aiFollowupInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    sendFollowup();
+                }
+            });
         }
 
         if (paymentConfirmBtn) {
