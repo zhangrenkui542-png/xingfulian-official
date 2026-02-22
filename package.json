@@ -1,0 +1,15 @@
+{
+  "name": "xingfulian-digital-federation",
+  "version": "4.1.0",
+  "description": "幸赋链·数字联邦 - 创业决策系统",
+  "scripts": {
+    "start": "serve ."
+  },
+  "keywords": [
+    "digital-federation",
+    "startup",
+    "decision-making"
+  ],
+  "author": "AI Sinan",
+  "license": "UNLICENSED"
+}
